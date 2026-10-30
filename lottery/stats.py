@@ -247,5 +247,8 @@ def simulation_report(data_dir: Path = DATA_DIR, histories: int = 1000) -> list[
             sim["real"]["fair_spread_p05_p95"] = [sim_real_n["spread"]["p05"], sim_real_n["spread"]["p95"]]
             sim["real"]["fair_persistence_p05_p95"] = [sim_real_n["persistence"]["p05"],
                                                        sim_real_n["persistence"]["p95"]]
+            # the histograms the real data is plotted against (same number of draws)
+            sim["real_ensemble"] = {"n_draws": n_real, "spread": sim_real_n["spread"],
+                                    "persistence": sim_real_n["persistence"]}
         out.append(sim)
     return out

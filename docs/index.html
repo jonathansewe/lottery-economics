@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lottery Economics</title>
+  <meta name="description" content="What US lottery games really pay back per dollar, proven with exact odds and real draw data. Educational only.">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap">
+      <p class="eyebrow">Lottery Economics</p>
+      <h1>What a $1 lottery ticket really returns, worked out from exact odds and real draw data.</h1>
+      <p class="lede">Every number has the same odds. "Hot numbers" are noise. Below is the math, then the evidence.</p>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="wrap" aria-labelledby="headline-title">
+      <h2 id="headline-title" class="visually-hidden">Return per dollar</h2>
+      <div class="hero-grid" id="hero" aria-live="polite">
+        <p class="muted">Loading…</p>
+      </div>
+      <p class="fineprint" id="hero-note"></p>
+    </section>
+
+    <section class="wrap" aria-labelledby="map-title">
+      <h2 id="map-title">Explore by state</h2>
+      <p class="muted">New York has the full deep dive. Every other state shows which of the two national games it sells, plus a link to its lottery's website.</p>
+      <div class="legend" aria-hidden="true">
+        <span><i class="swatch sw-deep"></i>Deep dive</span>
+        <span><i class="swatch sw-sells"></i>Sells Powerball / Mega Millions</span>
+        <span><i class="swatch sw-none"></i>No state lottery</span>
+      </div>
+      <div id="map" class="map" role="group" aria-label="Map of US states. Each state is a button."></div>
+      <details class="state-list">
+        <summary>All jurisdictions as a list (includes Puerto Rico and the U.S. Virgin Islands)</summary>
+        <ul id="state-buttons"></ul>
+      </details>
+    </section>
+
+    <section class="wrap" id="panel" aria-live="polite" tabindex="-1">
+      <div class="panel-placeholder muted">Select a state on the map, or <button class="linkish" data-open="NY">open the New York deep dive</button>.</div>
+    </section>
+
+    <section class="wrap" aria-labelledby="calc-title" id="calculator">
+      <h2 id="calc-title">EV calculator</h2>
+      <p class="muted">Type in an advertised jackpot to see what each $1 is expected to return. Assumes a New York City resident who takes the cash option.</p>
+      <form class="calc" id="calc-form" onsubmit="return false">
+        <label>Game
+          <select id="calc-game">
+            <option value="powerball">Powerball ($2)</option>
+            <option value="mega_millions">Mega Millions ($5)</option>
+          </select>
+        </label>
+        <label>Advertised jackpot ($)
+          <input id="calc-jackpot" type="number" min="0" step="1000000" inputmode="numeric" value="500000000">
+        </label>
+        <label>Cash value ÷ advertised
+          <input id="calc-cash" type="number" min="0.1" max="1" step="0.001">
+        </label>
+        <label>Other tickets sold for this draw
+          <input id="calc-tickets" type="number" min="0" step="1000000" inputmode="numeric" value="100000000">
+        </label>
+        <fieldset>
+          <legend>Taxes on prizes over $5,000</legend>
+          <label class="check"><input type="checkbox" id="tax-federal" checked> Federal <span id="rate-federal"></span></label>
+          <label class="check"><input type="checkbox" id="tax-state" checked> NY State <span id="rate-state"></span></label>
+          <label class="check"><input type="checkbox" id="tax-city" checked> NYC <span id="rate-city"></span></label>
+        </fieldset>
+      </form>
+      <div id="calc-out" class="calc-out" aria-live="polite"></div>
+    </section>
+
+    <section class="wrap" aria-labelledby="about-title">
+      <h2 id="about-title">How to read this</h2>
+      <ul class="plain">
+        <li><strong>Expected value (EV) per $1</strong> is the average amount you get back for every dollar you spend, averaged over every possible draw. Anything under $1.00 loses money on average.</li>
+        <li>The <strong>advertised jackpot</strong> is paid out over 30 years as an annuity. The lump sum ("cash value") is less than half of it. Taxes then take more than half of that.</li>
+        <li>A <strong>bigger jackpot sells more tickets</strong>, which raises the chance you have to split it. The calculator models this with a Poisson distribution.</li>
+        <li>This site never suggests numbers. Every combination has exactly the same chance.</li>
+      </ul>
+      <p class="fineprint" id="sources"></p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>Not affiliated with any lottery. Educational only. Data: NY Open Data.</p>
+      <p class="fineprint" id="generated"></p>
+    </div>
+  </footer>
+
+  <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+  <script src="js/ev.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
