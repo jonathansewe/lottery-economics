@@ -1,0 +1,141 @@
+"""Precompute everything the website shows into docs/data/*.json.
+
+  python -m lottery.build                 # use whatever is in data/ (may be empty)
+  python -m lottery.build --ingest        # download fresh data first, then build
+  python -m lottery.build --from-dir DIR  # ingest hand-exported files, then build
+
+The site is static: it only ever reads these JSON files.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+from . import config, ingest, rules, states, stats
+from . import math as lm
+
+ROOT = Path(__file__).resolve().parent.parent
+OUT = ROOT / "docs" / "data"
+
+# Illustrative scenarios for the EV tables (ticket sales are an assumption, see config.py).
+BIG_JACKPOT = 1_000_000_000
+BIG_JACKPOT_TICKETS = 200_000_000
+
+
+def _era_meta(era: rules.Era) -> dict:
+    return {
+        "era_id": era.era_id, "label": era.label, "matrix": era.matrix,
+        "first_draw": str(era.first_draw), "last_draw": str(era.last_draw) if era.last_draw else None,
+        "white_pool": era.white_pool, "white_drawn": era.white_drawn, "special_pool": era.special_pool,
+        "price": era.price, "has_prize_table": bool(era.tiers),
+        "starting_jackpot": era.starting_jackpot,
+        "verified": era.verified, "sources": list(era.sources), "notes": era.notes,
+    }
+
+
+def games_json() -> dict:
+    out = {}
+    for game, eras in rules.GAMES.items():
+        cur = rules.current_era(game)
+        entry = {"label": rules.GAME_LABELS[game], "eras": [_era_meta(e) for e in eras],
+                 "current_era": cur.era_id}
+        if game == "ny_numbers":
+            entry["plays"] = [{k: (float(v) if k == "probability" else v) for k, v in r.items()}
+                              for r in lm.numbers_odds()]
+        else:
+            entry["odds"] = {}
+            for e in eras:
+                if not e.tiers:
+                    continue
+                entry["odds"][e.era_id] = {
+                    "tiers": [{**{k: v for k, v in r.items() if k != "probability"},
+                               "probability": float(r["probability"])} for r in lm.odds_table(e)],
+                    "overall_one_in": float(1 / lm.overall_probability(e)),
+                    "official_overall_one_in": e.official_overall_odds,
+                    "multiplier": [[f, q] for f, q in e.multiplier.items()],
+                }
+        out[game] = entry
+    return out
+
+
+def ev_json() -> dict:
+    tax = {k: {"rate": v["rate"], "verified": v["verified"]} for k, v in config.TAX.items()}
+    out = {"tax": tax, "tax_free_prize_max": config.TAX_FREE_PRIZE_MAX,
+           "combined_tax_rate": config.combined_tax_rate(),
+           "tickets_scenarios": config.TICKETS_SOLD_SCENARIOS, "games": {}}
+    for game in ("powerball", "mega_millions"):
+        era = rules.current_era(game)
+        ref = lm.ev_breakdown(era, era.starting_jackpot, tickets_sold=config.REFERENCE_TICKETS_SOLD)
+        big = lm.ev_breakdown(era, BIG_JACKPOT, tickets_sold=BIG_JACKPOT_TICKETS)
+        split_grid = [{"tickets": n, "p_shared": lm.p_shared(lm.jackpot_probability(era), n),
+                       "expected_share": lm.expected_share(lm.jackpot_probability(era), n)}
+                      for n in config.TICKETS_SOLD_SCENARIOS]
+        out["games"][game] = {
+            "label": rules.GAME_LABELS[game], "era_id": era.era_id, "price": era.price,
+            "cash_ratio": config.CASH_RATIO[game], "starting_jackpot": era.starting_jackpot,
+            # inputs for the in-browser calculator (docs/js/ev.js mirrors lottery/math.py)
+            "tiers": [{"white": t.white, "special": t.special, "prize": t.prize,
+                       "probability": float(lm.tier_probability(era, t.white, t.special))} for t in era.tiers],
+            "multiplier": [[f, q] for f, q in (era.multiplier or {1: 1.0}).items()],
+            "reference": {"jackpot": era.starting_jackpot, "tickets": config.REFERENCE_TICKETS_SOLD, **ref},
+            "big": {"jackpot": BIG_JACKPOT, "tickets": BIG_JACKPOT_TICKETS, **big},
+            "split_grid": split_grid,
+            "break_even": {
+                "cash_pre_tax": lm.break_even_jackpot(era),
+                "cash_after_tax": lm.break_even_jackpot(era, tax_rate=config.combined_tax_rate()),
+            },
+        }
+    out["numbers"] = lm.numbers_ev()
+    out["headline"] = {
+        "powerball": out["games"]["powerball"]["reference"]["with_split"]["total_per_dollar"],
+        "mega_millions": out["games"]["mega_millions"]["reference"]["with_split"]["total_per_dollar"],
+        "ny_numbers": max(r["ev_per_dollar"] for r in out["numbers"]),
+    }
+    return out
+
+
+def stats_json(data_dir: Path) -> dict:
+    manifest_path = data_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+    res = stats.analyze(data_dir)
+    return {"data_available": bool(res["tests"]), "manifest": manifest,
+            "alpha": stats.ALPHA, **res}
+
+
+def build(out_dir: Path = OUT, data_dir: Path = stats.DATA_DIR, histories: int = 1000) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payloads = {
+        "games.json": games_json(),
+        "ev.json": ev_json(),
+        "stats.json": stats_json(data_dir),
+        "simulation.json": {"simulations": stats.simulation_report(data_dir, histories)},
+        "states.json": {"jurisdictions": states.jurisdictions()},
+    }
+    stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    for name, payload in payloads.items():
+        payload["generated_at"] = stamp
+        (out_dir / name).write_text(json.dumps(payload, separators=(",", ":"), allow_nan=False))
+        print(f"wrote {out_dir / name}")
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--ingest", action="store_true", help="download data from data.ny.gov first")
+    ap.add_argument("--from-dir", type=Path, help="ingest hand-exported files from this folder first")
+    args = ap.parse_args(argv)
+    if args.ingest or args.from_dir:
+        try:
+            ingest.run(from_dir=args.from_dir)
+        except ingest.IngestError as exc:
+            print(f"ingest failed: {exc}", file=sys.stderr)
+            return 1
+    build()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
