@@ -106,7 +106,56 @@ def stats_json(data_dir: Path) -> dict:
             "alpha": stats.ALPHA, **res}
 
 
-def build(out_dir: Path = OUT, data_dir: Path = stats.DATA_DIR, histories: int = 1000) -> None:
+FINDINGS_START, FINDINGS_END = "<!-- findings:start -->", "<!-- findings:end -->"
+
+
+def findings_markdown(stats_payload: dict, sims: list[dict]) -> str:
+    """Plain-English summary of the real-data results, regenerated on every build."""
+    if not stats_payload["data_available"]:
+        return ("*Real-data results are pending: the draw history has not been ingested in this "
+                "build. Run `python -m lottery.build --ingest` and this section rewrites itself.*")
+    tests = stats_payload["tests"]
+    n = len(tests)
+    flagged = [t for t in tests if t["significant"]]
+    low = min(tests, key=lambda t: t["p_value"])
+    lines = [
+        f"- **Fairness tests:** {n} chi-square tests (every game, rule era and ball set, never pooled). "
+        f"Bonferroni threshold: p < {stats.ALPHA}/{n} = {stats.ALPHA / n:.2g}. "
+        + ("**None** fall below it: the draws are consistent with every ball being equally likely."
+           if not flagged else
+           f"**{len(flagged)}** fall below it: "
+           + ", ".join(f"{t['era_label']} {t['ball_set']} (p = {t['p_value']:.2g})" for t in flagged)
+           + ". See the notebook before reading anything into this."),
+        f"- Smallest raw p-value: {low['p_value']:.3g} ({low['era_label']}, {low['ball_set']}). "
+        f"With {n} tests, the smallest p is expected to be around 1/{n + 1} ≈ {1 / (n + 1):.2f} by chance alone.",
+    ]
+    for s in sims:
+        r = s.get("real")
+        if not r:
+            continue
+        lo, hi = r["fair_persistence_p05_p95"]
+        lines.append(
+            f"- **{s['era_label']}, {r['n_draws']} draws:** the gap between the most and least drawn white "
+            f"ball is {r['spread']}, at the {r['spread_percentile']:.0f}th percentile of fair simulated histories. "
+            f"Half-to-half rank correlation of ball counts is {r['persistence']:.3f} (fair 90% range "
+            f"{lo:.2f} to {hi:.2f}): the hottest balls of the first half were not hotter in the second "
+            f"({r['first_half_hot_second_half_avg']:.1f} draws vs {r['second_half_expected']:.1f} expected).")
+    return "\n".join(lines)
+
+
+def write_findings(readme: Path, text: str) -> None:
+    if not readme.exists():
+        return
+    body = readme.read_text()
+    if FINDINGS_START not in body:
+        return
+    head, rest = body.split(FINDINGS_START, 1)
+    _, tail = rest.split(FINDINGS_END, 1)
+    readme.write_text(f"{head}{FINDINGS_START}\n{text}\n{FINDINGS_END}{tail}")
+
+
+def build(out_dir: Path = OUT, data_dir: Path = stats.DATA_DIR, histories: int = 1000,
+          readme: Path | None = ROOT / "README.md") -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     payloads = {
         "games.json": games_json(),
@@ -120,6 +169,8 @@ def build(out_dir: Path = OUT, data_dir: Path = stats.DATA_DIR, histories: int =
         payload["generated_at"] = stamp
         (out_dir / name).write_text(json.dumps(payload, separators=(",", ":"), allow_nan=False))
         print(f"wrote {out_dir / name}")
+    if readme is not None:
+        write_findings(readme, findings_markdown(payloads["stats.json"], payloads["simulation.json"]["simulations"]))
 
 
 def main(argv=None):
