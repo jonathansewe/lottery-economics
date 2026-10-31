@@ -35,6 +35,18 @@ cells = [
          "        rows.append({'game': era.label, 'jackpot': f'${J/1e6:,.0f}M', 'tickets (assumed)': f'{N/1e6:.0f}M',\n"
          "                     **{s: round(ev[s]['total_per_dollar'], 3) for s in ('advertised', 'cash', 'after_tax', 'with_split')}})\n"
          "pd.DataFrame(rows)"),
+    md("## 2b. Every New York game\nEV per $1 before tax, after tax owed, and after withholding only. "
+       "Values flagged `verified=False` use prize amounts not confirmed from an official page."),
+    code("rows = []\n"
+         "for g in rules.GAMES:\n"
+         "    if g in ('powerball', 'mega_millions'):\n"
+         "        continue\n"
+         "    era = rules.current_era(g)\n"
+         "    for owed, wh in zip(lm.game_ev(era, 'owed'), lm.game_ev(era, 'withholding')):\n"
+         "        rows.append({'game': rules.GAME_LABELS[g], 'play': owed['play'], 'pre_tax': round(owed['pre_tax'], 3),\n"
+         "                     'after_tax_owed': round(owed['after_tax'], 3), 'after_withholding': round(wh['after_tax'], 3),\n"
+         "                     'verified': owed['verified']})\n"
+         "pd.DataFrame(rows)"),
     md("## 3. Why the chi-square needs a correction\n"
        "A draw takes 5 *distinct* balls, so counts are negatively correlated and the plain Pearson "
        "statistic averages m−k instead of m−1. Multiplying by (m−1)/(m−k) fixes it."),

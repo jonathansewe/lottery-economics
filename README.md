@@ -1,7 +1,8 @@
 # Lottery Economics
 
 An educational static website plus a Python analysis pipeline that shows what US lottery games
-really pay back. It uses exact combinatorial odds and real NY Open Data draw history. It never
+really pay back. It covers every major New York Lottery draw game: Powerball, Mega Millions, NY Lotto,
+Take 5, Numbers, Win 4, Pick 10, Quick Draw, Millionaire for Life and the retired Cash4Life. It uses exact combinatorial odds and real NY Open Data draw history. It never
 suggests or "predicts" numbers. The whole point is that you can't.
 
 - **Python** (`lottery/`) computes every number: odds, expected value, statistics, simulations.
@@ -45,6 +46,35 @@ suggests or "predicts" numbers. The whole point is that you can't.
 - All 30 published "1 in X" odds (27 prize tiers across Powerball and the Mega Millions 2017 and 2025 eras,
   plus 3 NY Numbers plays) match the exact combinatorial values. The tests check this.
 
+### Every New York game, per $1
+
+| Game | Play | Before tax | After tax owed | After withholding only |
+|---|---|---|---|---|
+| Powerball ($2) | $20M starting jackpot, cash, splitting | $0.17 | **$0.08** | $0.14 |
+| Mega Millions ($5) | $50M starting jackpot, cash, splitting | $0.24 | **$0.11** | $0.21 |
+| NY Lotto ($1 = 2 plays) | pari-mutuel, 40% of sales to prizes | $0.40 | **$0.19** | $0.27 |
+| Take 5 ($1) | pari-mutuel, 50% of sales to prizes | $0.50 | **$0.24** | $0.46 |
+| NY Numbers ($1) | straight / box | $0.50 / $0.48 | **$0.24** / $0.23 | $0.50 / $0.48 |
+| Win 4 ($1) | straight / any box | $0.50 / $0.48 | **$0.24** / $0.23 | $0.50 / $0.48 (payouts unverified) |
+| Pick 10 ($1) | 10 numbers | $0.50 | **$0.24** | $0.46 |
+| Quick Draw ($1) | 2–10 spots / 1 spot | $0.59–0.60 / $0.50 | **$0.29** / $0.24 | $0.58–0.60 / $0.50 (some tiers unverified) |
+| Millionaire for Life ($5) | top prizes at cash value | $0.53 | **$0.26** | $0.43 |
+| Cash4Life ($2, retired) | top prizes at assumed value | $0.52 | **$0.25** | $0.44 (unverified values) |
+
+The "before tax" column already shows the design: every game keeps between 40% and 60% of
+what's bet, except Powerball and Mega Millions, which keep 76–83% unless the jackpot is huge.
+Quick Draw, despite looking like the most "gambling-like" game, has the best payout ratio.
+
+**Published figures that don't match exact counting** (each is pinned in a test):
+
+- NY Lotto 3rd prize: a 2026 Gaming Commission "odds correction" proposal says 1 in 144,418.98.
+  Exact counting gives 312 / C(59,6) = **1 in 144,414.98**, the same as the 2020 odds sheet.
+- Pick 10 overall odds: published 1 in 17.00. Every tier matches, but the exact overall is
+  **1 in 16.94**.
+- Take 5 overall odds: NY's page says 1 in 8.7; exact is **1 in 8.77**.
+- Millionaire for Life overall: powerball.com says 1 in 8.46, NY says 8.47; exact is
+  **1 in 8.4677** (NY rounds, powerball.com truncates).
+
 ### From the draw data
 
 <!-- findings:start -->
@@ -68,7 +98,7 @@ cd lottery-economics
 python -m venv .venv && source .venv/bin/activate   # isolated environment (Windows: .venv\Scripts\activate)
 pip install -r requirements.txt                     # pandas, numpy, scipy, requests, pytest (+ notebook tools)
 
-python -m pytest                                    # 60 tests: odds vs official, EV, ingest, stats, JS parity
+python -m pytest                                    # 127 tests: odds vs official, EV, ingest, export, stats, sales, JS parity
 python -m lottery.build --ingest                    # download draws from data.ny.gov -> data/*.csv,
                                                     # then write docs/data/*.json and refresh the README findings
 python -m http.server 8000 -d docs                  # serve the site; open http://localhost:8000
@@ -79,7 +109,8 @@ What each command does:
 | Command | What it does |
 |---|---|
 | `python -m lottery.ingest` | Pages through the three Socrata datasets and writes tidy, era-tagged `data/powerball.csv`, `data/mega_millions.csv`, `data/ny_numbers.csv` plus `data/manifest.json` (row counts, dates, warnings). Safe to re-run: it rebuilds from the full source every time. Set `SOCRATA_APP_TOKEN` to avoid anonymous rate limits. |
-| `python -m lottery.ingest --games powerball` | Same, one game only. |
+| `python -m lottery.ingest --games powerball take5` | Same, selected games only. Game keys: `powerball mega_millions ny_numbers win4 ny_lotto take5 pick10 quick_draw cash4life millionaire_for_life`. |
+| `python -m lottery.ingest --games quick_draw --qd-since 2024` | Quick Draw has 100k+ draws a year; this downloads from 2024 on only. |
 | `python -m lottery.ingest --from-dir ~/Downloads` | Use files you exported by hand from data.ny.gov ("Export" → CSV) named `powerball.csv`, `mega_millions.csv`, `ny_numbers.csv`. Useful behind a restrictive network. |
 | `python -m lottery.build` | Recompute everything into `docs/data/*.json` from whatever is in `data/`, and rewrite the findings section above. |
 | `python -m lottery.build --ingest` | Ingest, then build. **This is the one command for updating the site.** |
@@ -97,10 +128,13 @@ lottery/
   ingest.py   Socrata download → tidy CSV, era tagging, validation
   stats.py    frequencies, chi-square (+ without-replacement correction), Bonferroni, simulations
   states.py   which jurisdictions sell Powerball / Mega Millions + lottery website links
+  export.py   splits draws into docs/data/draws/<game>/<year>.json (Quick Draw: per month, recent years)
+  sales.py    ticket-sales estimator (jackpot growth, winner counts) + comparison with official sales
   build.py    writes docs/data/*.json and the README findings section
-tests/        pytest suite (60 tests)
+tests/        pytest suite (127 tests)
+data/sales/   hand-filled inputs for the sales estimator (empty templates + README)
 notebooks/analysis.ipynb
-docs/         the website (GitHub Pages root): index.html, css/, js/{ev,charts,app}.js, data/*.json
+docs/         the website (GitHub Pages root): index.html, css/, js/{ev,charts,nygames,app}.js, data/*.json, data/draws/
 scripts/      notebook generator, link checker
 ```
 
@@ -111,6 +145,16 @@ scripts/      notebook generator, link checker
 | Powerball draws (2010–) | NY Open Data, *Lottery Powerball Winning Numbers: Beginning 2010* | `d6yy-54nr`, https://data.ny.gov/Government-Finance/Lottery-Powerball-Winning-Numbers-Beginning-2010/d6yy-54nr |
 | Mega Millions draws (2002–) | NY Open Data, *Lottery Mega Millions Winning Numbers: Beginning 2002* | `5xaw-6ayf`, https://data.ny.gov/Government-Finance/Lottery-Mega-Millions-Winning-Numbers-Beginning-20/5xaw-6ayf |
 | NY Numbers draws (1980–) | NY Open Data, *Lottery Daily Numbers/Win-4 Winning Numbers: Beginning 1980* | `hsys-3def`, https://data.ny.gov/d/hsys-3def |
+| NY Lotto draws (2001–) | NY Open Data | `6nbc-h7bj` |
+| Take 5 draws (1992–) | NY Open Data | `dg63-4siq` |
+| Win 4 draws | NY Open Data (same dataset as Numbers) | `hsys-3def` |
+| Pick 10 draws (1987–) | NY Open Data | `bycu-cw7c` |
+| Quick Draw draws (2013–) | NY Open Data | `7sqk-ycpk` |
+| Cash4Life draws (2014–2026, retired) | NY Open Data | `kwxv-fwze` |
+| Millionaire for Life draws | **TODO**: no NY Open Data dataset found yet | — |
+| NY game rules (Lotto, Take 5, Pick 10, Quick Draw, Cash4Life, Numbers) | nylottery.ny.gov odds & prizes sheets, gaming.ny.gov rules | URLs in `lottery/rules.py` |
+| Millionaire for Life | powerball.com prize chart, gaming.ny.gov launch release | URLs in `lottery/rules.py` |
+| Withholding rules | IRS W-2G instructions (24% over $5,000), NYS Pub 140W | URLs in `lottery/config.py` |
 | Powerball rules, prizes, odds | powerball.com prize chart & media center; NY Lottery odds sheet | URLs in `lottery/rules.py` |
 | Mega Millions rules, prizes, odds, multiplier | megamillions.com how-to-play, new prize matrix, 2013/2017/2025 announcements | URLs in `lottery/rules.py` |
 | NY Numbers payouts | NY Lottery *Numbers Odds and Prizes* PDF | URL in `lottery/rules.py` |
@@ -146,6 +190,27 @@ scripts/      notebook generator, link checker
   takes ticket counts as an input. Scenarios are labelled as assumptions. The model assumes
   other players pick uniformly at random. Real players over-pick birthdays and patterns, so
   someone playing popular numbers has a *worse* split risk than shown.
+- **Unverified values** (shown with an *unverified* tag on the site):
+  - Win 4 payouts.
+  - Quick Draw prizes for the 1–3-spot games and some 9- and 10-spot tiers.
+  - Cash4Life's lifetime-prize values and most of its lower tiers.
+  - Take 5's lower-tier pool shares.
+  - The launch dates used in coverage notes.
+  - Several older era boundaries.
+- **Pari-mutuel games** (NY Lotto, Take 5): EV per $1 is the share of sales paid as prizes,
+  because rollovers move money between draws without creating any. "Typical prize" per tier =
+  price × pool fraction × tier share ÷ P(tier), which needs no sales figures.
+- **"For life" prizes** are valued at the lump-sum cash option: about $18M and $2.2M for
+  Millionaire for Life (these move with interest rates), and an assumed $7M / $1M for Cash4Life.
+- **Quick Draw** history on the site lists every draw for the two most recent years only. Older
+  years appear as per-number counts. Its chi-square test uses the full history.
+- **No file over 50 MB** is ever written (ingest and export both enforce it).
+- **Coverage, never filled.** If a dataset starts after a game began, the site says so. Missing
+  midday draws and gaps are left as they are and reported.
+- **Sales estimates** need jackpot and winner-count inputs that were not reachable when this was
+  built, so the chart shows a notice until `data/sales/*.csv` are filled in. Method (a) is off for
+  Powerball and Mega Millions, because their jackpot share of sales wasn't found in an official
+  source.
 - **Pari-mutuel cases** (California's prize rules, rare high-liability draws) are ignored.
 - **State lottery website URLs** were not reachable from the build machine. They are marked
   "link not yet verified" on the site until checked with `scripts/check_links.py`.
@@ -325,7 +390,67 @@ button, and there's an equivalent plain list. The EV calculator needs live math,
 line-for-line port of `lottery/math.py`. `tests/test_js_parity.py` runs it under Node and
 asserts it matches Python to 12 significant digits, so the two can't drift apart.
 
-### 9. Testing strategy
+### 9. More game shapes: bonus balls and keno
+
+**NY Lotto's bonus ball** is drawn from the 53 balls left after the 6 winners. If you matched
+j numbers, your other 6−j are among those 53, so P(bonus is one of yours) = (6−j)/53. Second
+prize (5 + bonus) is therefore 6·1/C(59,6), and third (5, no bonus) is 6·52/C(59,6). Each ball
+is equally likely to *be* the bonus (1/59) by symmetry, which is why the bonus gets its own
+chi-square test.
+
+**Keno** (Pick 10, Quick Draw): the lottery draws 20 of 80, and you pick s spots. Matching
+exactly k of them is hypergeometric again, from your side this time:
+
+    P(k) = C(20, k) · C(60, s−k) / C(80, s)
+
+Pick 10's jackpot is 1/C(80,10) × C(20,10) = 1 in 8,911,711. A Quick Draw "0 matches" prize
+exists because matching none of 10 is not that rare (about 1 in 22).
+
+### 10. Pari-mutuel prizes
+
+In NY Lotto and Take 5, a fixed share of each draw's sales goes into a prize pool, which is
+split among the winners of each tier. Your expected return per $1 is just that share (40% and
+50%), because what one draw doesn't pay out rolls into a later one. The *typical* prize in a
+tier is price × pool fraction × tier share ÷ P(tier). Sales cancel out: more tickets mean a
+bigger pool, but proportionally more winners to share it.
+
+### 11. The number checker
+
+It validates a pick against the game's rules: right count, in range, no repeats, a box play
+needs two or more different digits. It then shows:
+
+- **Exact odds.** These are the same for every valid pick. The page says so because that's
+  the whole point.
+- **History.** How often each chosen number came up in the current rules era, and whether the
+  exact combination was ever drawn, scanning the per-year files. These counts carry no
+  information about future draws (see section 6).
+- **Popular patterns.** All numbers 31 or under (birthdays), runs of 3+ consecutive numbers,
+  evenly spaced numbers, all the same last digit, all multiples of 5, and repeated or
+  sequential digits in Numbers/Win 4. Popular picks don't lose more often. They *split* more
+  often, which only matters for shared prizes: the Powerball and Mega Millions jackpots, all
+  NY Lotto and Take 5 tiers, and Pick 10's capped top prize. The checker says which case
+  applies.
+
+### 12. The ticket-sales estimator
+
+Two independent methods (`lottery/sales.py`):
+
+- **(a) Jackpot growth.** With no jackpot winner, the next cash jackpot grows by s × sales, where
+  s is the share of sales funding the jackpot (NY Lotto 0.40 × 0.75 = 30%; Take 5
+  0.50 × 0.20 = 10%). So sales ≈ Δcash / s. It's skipped after a jackpot is won (reset) and
+  for games where s isn't verified.
+- **(b) Winner counts.** Tier i's winner count is W_i ~ Poisson(N·p_i). The log-likelihood
+  Σ [W_i log(N p_i) − N p_i] is maximised at **N̂ = ΣW_i / Σp_i**, with standard error
+  √ΣW_i / Σp_i. Low tiers with thousands of winners make it precise to well under 1%. Tests show
+  the estimate is unbiased and its 95% interval covers the truth about 95% of the time on
+  simulated draws.
+
+The **scope** matters. Powerball and Mega Millions winners and jackpots are national, so those
+estimates are *national* ticket counts, not New York's. The estimates are compared with
+official sales by summing per-draw estimates over each official period and reporting the %
+error and the mean absolute % error (MAPE).
+
+### 13. Testing strategy
 
 - **Against an external oracle:** every tier's odds vs the lottery's published odds.
 - **Against independent methods:** closed form vs series vs Monte Carlo (split model);
