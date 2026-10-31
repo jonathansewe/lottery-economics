@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats as sps
 
-from . import rules
+from . import export, ingest, rules
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
@@ -36,12 +36,9 @@ WHITE_COLS = [f"n{i}" for i in range(1, 6)]
 # Loading
 # ---------------------------------------------------------------------------
 def load_draws(game: str, data_dir: Path = DATA_DIR) -> pd.DataFrame | None:
-    path = data_dir / f"{game}.csv"
-    if not path.exists():
-        return None
-    df = pd.read_csv(path, dtype={"number": str})
-    df["draw_date"] = pd.to_datetime(df["draw_date"]).dt.date
-    return df
+    """All of a game's tidy draws (Quick Draw: every year file, so prefer
+    quick_draw_ball_sets for it, which streams one year at a time)."""
+    return export.load_tidy(game, data_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -51,23 +48,47 @@ def ball_sets(game: str, df: pd.DataFrame):
     """Yield (era, ball_set_name, labels, counts, n_draws, k, m) for every test.
 
     labels are the ball numbers (or digit/number strings) in display order.
+      digits  one set per digit position (k=1 of 10) + the whole number (1 of 10^n)
+      lotto   white balls (k of m) + special ball (1 of s); NY Lotto's bonus ball is
+              1 of 59 at the margin, by symmetry, so it is tested as its own set
+      keno    the 20 drawn of 80 (k=20, so the (m-1)/(m-k) correction is 79/60)
     """
     for era_id, part in df.groupby("era_id", sort=False):
         era = rules.ERAS[era_id]
         n = len(part)
-        if game == "ny_numbers":
-            for pos in (1, 2, 3):
+        if era.kind == "digits":
+            nd = era.white_drawn
+            for pos in range(1, nd + 1):
                 counts = np.bincount(part[f"d{pos}"].to_numpy(int), minlength=10)
                 yield era, f"digit_{pos}", list(range(10)), counts, n, 1, 10
             idx = part["number"].astype(int).to_numpy()
-            yield era, "number", [f"{i:03d}" for i in range(1000)], np.bincount(idx, minlength=1000), n, 1, 1000
-        else:
-            whites = part[WHITE_COLS].to_numpy(int).ravel()
-            yield (era, "white", list(range(1, era.white_pool + 1)),
-                   np.bincount(whites, minlength=era.white_pool + 1)[1:], n, era.white_drawn, era.white_pool)
-            yield (era, "special", list(range(1, era.special_pool + 1)),
-                   np.bincount(part["special"].to_numpy(int), minlength=era.special_pool + 1)[1:],
-                   n, 1, era.special_pool)
+            yield (era, "number", [f"{i:0{nd}d}" for i in range(10 ** nd)],
+                   np.bincount(idx, minlength=10 ** nd), n, 1, 10 ** nd)
+            continue
+        cols = [f"n{i}" for i in range(1, era.white_drawn + 1)]
+        whites = part[cols].to_numpy(int).ravel()
+        yield (era, "white", list(range(1, era.white_pool + 1)),
+               np.bincount(whites, minlength=era.white_pool + 1)[1:], n, era.white_drawn, era.white_pool)
+        if (era.special_pool or era.bonus) and "special" in part.columns:
+            top = era.white_pool if era.bonus else era.special_pool
+            yield (era, "bonus" if era.bonus else "special", list(range(1, top + 1)),
+                   np.bincount(part["special"].to_numpy(int), minlength=top + 1)[1:], n, 1, top)
+
+
+def quick_draw_ball_sets(data_dir: Path):
+    """Quick Draw has 100k+ draws a year: accumulate counts one year file at a time."""
+    years = export.quick_draw_years(data_dir)
+    if not years:
+        return
+    era = rules.current_era("quick_draw")
+    total, n, first, last = np.zeros(era.white_pool, dtype=np.int64), 0, None, None
+    for y in years:
+        df = export.load_tidy("quick_draw", data_dir, {y})
+        total += np.bincount(df[ingest.white_cols(df)].to_numpy(int).ravel(), minlength=era.white_pool + 1)[1:]
+        n += len(df)
+        first = first or str(df["draw_date"].min())
+        last = str(df["draw_date"].max())
+    yield era, "white", list(range(1, era.white_pool + 1)), total, n, era.white_drawn, era.white_pool, first, last
 
 
 # ---------------------------------------------------------------------------
@@ -130,26 +151,35 @@ def binomial_band(n_draws: int, k: int, m: int, level: float = 0.95) -> tuple[in
     return int(lo), int(hi)
 
 
+def _record(freq, tests, game, era, name, labels, counts, n, k, m, first, last):
+    res = chi_square(counts, n, k, m)
+    lo, hi = binomial_band(n, k, m)
+    counts = np.asarray(counts)
+    outside = int(((counts < lo) | (counts > hi)).sum())
+    freq.append({
+        "game": game, "era_id": era.era_id, "era_label": era.label, "ball_set": name,
+        "n_draws": int(n), "first_draw": first, "last_draw": last,
+        "labels": labels, "counts": counts.tolist(), "expected": n * k / m,
+        "band95": [lo, hi], "outside_band": outside, "expected_outside": round(0.05 * m, 1),
+    })
+    tests.append({"game": game, "era_id": era.era_id, "era_label": era.label,
+                  "ball_set": name, "n_draws": int(n), **res})
+
+
 def analyze(data_dir: Path = DATA_DIR) -> dict:
     """Frequencies + chi-square for every game/era/ball set with data present."""
     freq, tests = [], []
     for game in rules.GAMES:
+        if game == "quick_draw":
+            for era, name, labels, counts, n, k, m, first, last in quick_draw_ball_sets(data_dir):
+                _record(freq, tests, game, era, name, labels, counts, n, k, m, first, last)
+            continue
         df = load_draws(game, data_dir)
         if df is None or df.empty:
             continue
         for era, name, labels, counts, n, k, m in ball_sets(game, df):
-            res = chi_square(counts, n, k, m)
-            lo, hi = binomial_band(n, k, m)
-            outside = int(((counts < lo) | (counts > hi)).sum())
-            freq.append({
-                "game": game, "era_id": era.era_id, "era_label": era.label, "ball_set": name,
-                "n_draws": int(n), "first_draw": str(min(df.loc[df.era_id == era.era_id, "draw_date"])),
-                "last_draw": str(max(df.loc[df.era_id == era.era_id, "draw_date"])),
-                "labels": labels, "counts": counts.tolist(), "expected": n * k / m,
-                "band95": [lo, hi], "outside_band": outside, "expected_outside": round(0.05 * m, 1),
-            })
-            tests.append({"game": game, "era_id": era.era_id, "era_label": era.label,
-                          "ball_set": name, "n_draws": int(n), **res})
+            dates = df.loc[df.era_id == era.era_id, "draw_date"]
+            _record(freq, tests, game, era, name, labels, counts, n, k, m, str(min(dates)), str(max(dates)))
     return {"frequencies": freq, "tests": bonferroni(tests)}
 
 
