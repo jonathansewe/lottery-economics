@@ -75,3 +75,58 @@ lottery-economics/
 
 Other states' historical data, school-funding audit, scratch-off EV, AI features,
 Power Play / Double Play / Just the Jackpot add-ons (base play only; noted).
+
+---
+
+# v2 plan (2026-10-31): all major NY games, history, number checker, sales
+
+Still offline: data.ny.gov, the lottery sites and GitHub are unreachable. Rules are
+checked through official-domain search snippets only; everything else is marked
+`unverified` in code and on the site. No real or synthetic draws are committed.
+
+## Research results that change scope
+
+- **Cash4Life ended nationally on 2026-02-21** and NY replaced it with
+  **Millionaire for Life** (first draw 2026-02-22, $5, 5/58 + 1/5). Both are added:
+  Cash4Life as a retired game (its dataset `kwxv-fwze` is static), Millionaire for
+  Life as current (dataset ID unknown: TODO).
+- NY Lotto: 6/59 + bonus, $1 buys two plays, 40% of sales to prizes split
+  75 / 7.25 / 5.5 / 6.25 / 6 % across tiers (pari-mutuel). A 2026 "odds correction"
+  proposal quotes 3rd-prize odds 1 in 144,418.98; exact counting gives
+  1 in 144,414.98 (matches the 2020 sheet). Reported, not resolved.
+- Take 5: 5/39, $1, 50% of sales to prizes, jackpot 20% of that; match-2 wins a
+  free Quick Pick. Lower-tier shares not found (unverified).
+- Pick 10 fully verified (20 of 80 drawn, pick 10, $1, $5M top-prize liability cap).
+- Quick Draw: 8-spot table verified; other spot tables partly verified (snippets
+  from a 2020 PDF and a test subdomain) — unverified amounts flagged.
+- Win 4 payouts: no official snippet found — unverified.
+- Powerball / Mega Millions share of sales funding the jackpot: not found. Sales
+  method (a) is disabled for them (no guessed constant); NY Lotto (30% of sales)
+  and Take 5 (10% of sales) have verified shares.
+
+## Steps (commit after each)
+
+0. **Tax fix** — tax *all* prizes in EV ("owed" view, default). Keep a labelled
+   "withholding only" view: federal 24% + NYS/NYC top rates on prizes over $5,000
+   (IRS W-2G instructions; NYS Pub 140W). JS calculator gets the toggle.
+1. **All NY games** — generalise rules (`kind`: lotto / digits / keno, bonus ball,
+   pari-mutuel tiers, life prizes valued at cash option, per-value `verified`
+   flags). Exact odds for every tier, EV per $1 (pre-tax, owed, withholding),
+   tests against every published odds figure found.
+2. **Parsers** — dataset registry (IDs or TODO); parsers for NY Lotto, Take 5,
+   Win 4, Pick 10, Quick Draw, Cash4Life, Millionaire for Life; realistic sample-row
+   tests. Export per-game, per-year JSON (`docs/data/draws/<game>/<year>.json`,
+   Quick Draw per month, recent years only + full-history summary counts),
+   50 MB hard cap per file, coverage vs. launch date reported, never gap-filled.
+3. **Stats** — chi-square per game/era/ball set for every game (keno: 20 of 80
+   with the (m-1)/(m-k) correction), Bonferroni across all.
+4. **Sales estimator** (`lottery/sales.py`) — (a) Δcash jackpot ÷ jackpot share of
+   sales; (b) pooled Poisson MLE `N = ΣW / Σp` from tier winner counts, with CI;
+   comparison with official sales (error %, MAPE); scope labels (national vs NY).
+   Inputs are CSV templates in `data/sales/` to be filled once online.
+5. **Build + site** — games/EV for all games, Draw history tab (per game, sortable,
+   searchable, paginated, CSV download, lazy year loading), Number checker
+   (validation, exact odds, history hits, popular-pattern warnings), Ticket sales
+   chart, tax-view toggle. Chromium check at desktop + phone.
+6. **Docs + delivery** — README (findings, explainer for sales + checker), notebook,
+   regenerated bundle, list of steps for when network/GitHub work.
