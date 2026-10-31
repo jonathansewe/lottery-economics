@@ -64,8 +64,10 @@ def games_json() -> dict:
 
 def ev_json() -> dict:
     tax = {k: {"rate": v["rate"], "verified": v["verified"]} for k, v in config.TAX.items()}
-    out = {"tax": tax, "tax_free_prize_max": config.TAX_FREE_PRIZE_MAX,
+    withholding = {k: {"rate": v["rate"], "verified": v["verified"]} for k, v in config.WITHHOLDING.items()}
+    out = {"tax": tax, "withholding": withholding, "withholding_threshold": config.WITHHOLDING_THRESHOLD,
            "combined_tax_rate": config.combined_tax_rate(),
+           "tax_modes": {m: dict(zip(("rate", "threshold"), config.tax_params(m))) for m in config.TAX_MODES},
            "tickets_scenarios": config.TICKETS_SOLD_SCENARIOS, "games": {}}
     for game in ("powerball", "mega_millions"):
         era = rules.current_era(game)
@@ -84,16 +86,21 @@ def ev_json() -> dict:
             "reference": {"jackpot": era.starting_jackpot, "tickets": config.REFERENCE_TICKETS_SOLD, **ref},
             "big": {"jackpot": BIG_JACKPOT, "tickets": BIG_JACKPOT_TICKETS, **big},
             "split_grid": split_grid,
+            "reference_withholding": lm.ev_breakdown(era, era.starting_jackpot, tax_mode="withholding",
+                                                     tickets_sold=config.REFERENCE_TICKETS_SOLD),
             "break_even": {
                 "cash_pre_tax": lm.break_even_jackpot(era),
                 "cash_after_tax": lm.break_even_jackpot(era, tax_rate=config.combined_tax_rate()),
+                "cash_after_withholding": lm.break_even_jackpot(
+                    era, tax_rate=config.tax_params("withholding")[0],
+                    threshold=config.tax_params("withholding")[1]),
             },
         }
     out["numbers"] = lm.numbers_ev()
     out["headline"] = {
         "powerball": out["games"]["powerball"]["reference"]["with_split"]["total_per_dollar"],
         "mega_millions": out["games"]["mega_millions"]["reference"]["with_split"]["total_per_dollar"],
-        "ny_numbers": max(r["ev_per_dollar"] for r in out["numbers"]),
+        "ny_numbers": max(r["after_tax_per_dollar"] for r in out["numbers"]),
     }
     return out
 

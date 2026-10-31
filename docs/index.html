@@ -65,7 +65,12 @@
           <input id="calc-tickets" type="number" min="0" step="1000000" inputmode="numeric" value="100000000">
         </label>
         <fieldset>
-          <legend>Taxes on prizes over $5,000</legend>
+          <legend>Tax view</legend>
+          <label class="check"><input type="radio" name="tax-mode" value="owed" checked> Tax owed on every prize (default)</label>
+          <label class="check"><input type="radio" name="tax-mode" value="withholding"> Withholding only (prizes over $5,000; not your final bill)</label>
+        </fieldset>
+        <fieldset>
+          <legend>Which taxes apply</legend>
           <label class="check"><input type="checkbox" id="tax-federal" checked> Federal <span id="rate-federal"></span></label>
           <label class="check"><input type="checkbox" id="tax-state" checked> NY State <span id="rate-state"></span></label>
           <label class="check"><input type="checkbox" id="tax-city" checked> NYC <span id="rate-city"></span></label>

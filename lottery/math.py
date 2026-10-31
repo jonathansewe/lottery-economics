@@ -95,15 +95,17 @@ def p_shared(p_jackpot: float, other_tickets: float) -> float:
 # ---------------------------------------------------------------------------
 # Expected value
 # ---------------------------------------------------------------------------
-def _taxed(amount: float, rate: float) -> float:
-    return amount if amount <= config.TAX_FREE_PRIZE_MAX else amount * (1 - rate)
+def _taxed(amount: float, rate: float, threshold: float = 0.0) -> float:
+    """Prize after tax. Only the withholding view uses a threshold; tax owed
+    applies to every prize (all gambling winnings are taxable income)."""
+    return amount if amount <= threshold else amount * (1 - rate)
 
 
-def fixed_prize_ev(era: Era, tax_rate: float = 0.0) -> float:
+def fixed_prize_ev(era: Era, tax_rate: float = 0.0, threshold: float = 0.0) -> float:
     """Expected dollars from all non-jackpot tiers for one play (not per $1).
 
     Mega Millions' built-in multiplier is applied per multiplier value, because
-    multiplying can push a prize over the tax threshold.
+    multiplying can push a prize over the withholding threshold.
     """
     mult = era.multiplier or {1: 1.0}
     total = 0.0
@@ -111,7 +113,7 @@ def fixed_prize_ev(era: Era, tax_rate: float = 0.0) -> float:
         if t.prize == JACKPOT:
             continue
         p = float(tier_probability(era, t.white, t.special))
-        total += p * sum(q * _taxed(t.prize * f, tax_rate) for f, q in mult.items())
+        total += p * sum(q * _taxed(t.prize * f, tax_rate, threshold) for f, q in mult.items())
     return total
 
 
@@ -121,23 +123,27 @@ def jackpot_probability(era: Era) -> float:
 
 
 def ev_breakdown(era: Era, advertised_jackpot: float, cash_ratio: float | None = None,
-                 tickets_sold: float = 0, tax_rate: float | None = None) -> dict:
+                 tickets_sold: float = 0, tax_rate: float | None = None,
+                 tax_mode: str = "owed") -> dict:
     """Expected return per $1 spent, step by step from the advertised number to reality.
 
     Steps (each one per $1 of ticket price):
       1. advertised  - annuity jackpot, no tax, no splitting  (what the billboard implies)
       2. cash        - jackpot at its lump-sum cash value
-      3. after_tax   - federal + NY State + NYC tax on prizes over the threshold
+      3. after_tax   - federal + NY State + NYC tax (tax_mode "owed": on every prize;
+                       "withholding": only what is withheld on prizes over $5,000)
       4. with_split  - also multiply the jackpot by the expected share (Poisson)
+    An explicit tax_rate overrides the mode's rate but keeps its threshold.
     """
     if cash_ratio is None:
         cash_ratio = config.CASH_RATIO[era.game]
+    mode_rate, threshold = config.tax_params(tax_mode)
     if tax_rate is None:
-        tax_rate = config.combined_tax_rate()
+        tax_rate = mode_rate
     pj = jackpot_probability(era)
     share = expected_share(pj, tickets_sold)
     fixed_pre = fixed_prize_ev(era, 0.0)
-    fixed_post = fixed_prize_ev(era, tax_rate)
+    fixed_post = fixed_prize_ev(era, tax_rate, threshold)
     cash = advertised_jackpot * cash_ratio
 
     steps = {
@@ -151,6 +157,8 @@ def ev_breakdown(era: Era, advertised_jackpot: float, cash_ratio: float | None =
         "advertised_jackpot": advertised_jackpot,
         "cash_ratio": cash_ratio,
         "tax_rate": tax_rate,
+        "tax_mode": tax_mode,
+        "tax_threshold": threshold,
         "tickets_sold": tickets_sold,
         "p_jackpot": pj,
         "p_shared": p_shared(pj, tickets_sold),
@@ -166,7 +174,7 @@ def ev_breakdown(era: Era, advertised_jackpot: float, cash_ratio: float | None =
 
 
 def break_even_jackpot(era: Era, cash_ratio: float | None = None,
-                       tax_rate: float = 0.0) -> float:
+                       tax_rate: float = 0.0, threshold: float = 0.0) -> float:
     """Advertised jackpot at which EV per $1 reaches $1, *ignoring* splitting.
 
     Solves fixed + p * J * cash_ratio * (1 - tax) = price for J. With splitting
@@ -175,14 +183,15 @@ def break_even_jackpot(era: Era, cash_ratio: float | None = None,
     if cash_ratio is None:
         cash_ratio = config.CASH_RATIO[era.game]
     pj = jackpot_probability(era)
-    fixed = fixed_prize_ev(era, tax_rate)
+    fixed = fixed_prize_ev(era, tax_rate, threshold)
     return (era.price - fixed) / (pj * cash_ratio * (1 - tax_rate))
 
 
-def numbers_ev() -> list[dict]:
-    """NY Numbers: expected return per $1 for each play type (fixed prizes, all
-    under the tax threshold)."""
+def numbers_ev(tax_mode: str = "owed") -> list[dict]:
+    """NY Numbers: expected return per $1 for each play type, before and after tax."""
+    rate, threshold = config.tax_params(tax_mode)
     return [
-        {"play": p["play"], "label": p["label"], "ev_per_dollar": p["ways"] / 1000 * p["prize"]}
+        {"play": p["play"], "label": p["label"], "ev_per_dollar": p["ways"] / 1000 * p["prize"],
+         "after_tax_per_dollar": p["ways"] / 1000 * _taxed(p["prize"], rate, threshold)}
         for p in NUMBERS_PLAYS
     ]

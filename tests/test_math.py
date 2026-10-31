@@ -3,8 +3,8 @@ from math import comb, exp, factorial
 
 import pytest
 
+from lottery import config, rules
 from lottery import math as lm
-from lottery import rules
 from lottery.rules import JACKPOT
 
 PRIZED_ERAS = [e for e in rules.ERAS.values() if e.tiers]
@@ -58,6 +58,11 @@ def test_numbers_odds_and_ev():
         assert round(r["one_in"]) == r["official_odds"]
     ev = {r["play"]: r["ev_per_dollar"] for r in lm.numbers_ev()}
     assert ev == pytest.approx({"straight": 0.50, "box_3way": 0.48, "box_6way": 0.48})
+    keep = 1 - config.combined_tax_rate()
+    owed = {r["play"]: r["after_tax_per_dollar"] for r in lm.numbers_ev("owed")}
+    assert owed == pytest.approx({"straight": 0.50 * keep, "box_3way": 0.48 * keep, "box_6way": 0.48 * keep})
+    # nothing in Numbers is over $5,000, so nothing is withheld
+    assert all(r["after_tax_per_dollar"] == r["ev_per_dollar"] for r in lm.numbers_ev("withholding"))
 
 
 def test_mm_multiplier_distribution():
@@ -125,13 +130,48 @@ def test_mega_millions_fixed_ev_is_three_times_base():
     assert lm.fixed_prize_ev(era) == pytest.approx(3 * base)
 
 
-def test_after_tax_only_touches_prizes_over_threshold():
+def test_tax_owed_applies_to_every_prize():
+    # All gambling winnings are taxable: the default view taxes even a $4 prize.
     era = rules.current_era("powerball")
-    full = lm.fixed_prize_ev(era, 0.5)
+    assert lm.fixed_prize_ev(era, 0.5) == pytest.approx(0.5 * lm.fixed_prize_ev(era, 0.0))
+    ev = lm.ev_breakdown(era, 1e8)
+    assert ev["tax_mode"] == "owed" and ev["tax_threshold"] == 0
+    assert ev["after_tax"]["fixed_per_dollar"] == pytest.approx(
+        ev["cash"]["fixed_per_dollar"] * (1 - config.combined_tax_rate()))
+
+
+def test_withholding_view_only_touches_prizes_over_5000():
+    era = rules.current_era("powerball")
+    rate, threshold = config.tax_params("withholding")
+    assert threshold == 5000 and rate == pytest.approx(0.24 + 0.109 + 0.03876)
     untaxed = lm.fixed_prize_ev(era, 0.0)
+    withheld = lm.fixed_prize_ev(era, rate, threshold)
     big = sum(float(lm.tier_probability(era, t.white, t.special)) * t.prize
               for t in era.tiers if t.prize != JACKPOT and t.prize > 5000)
-    assert untaxed - full == pytest.approx(0.5 * big)
+    assert untaxed - withheld == pytest.approx(rate * big)
+
+
+def test_withholding_view_is_less_than_tax_owed():
+    for game in ("powerball", "mega_millions"):
+        era = rules.current_era(game)
+        owed = lm.ev_breakdown(era, 5e8, tax_mode="owed")["after_tax"]["total_per_dollar"]
+        withheld = lm.ev_breakdown(era, 5e8, tax_mode="withholding")["after_tax"]["total_per_dollar"]
+        assert withheld > owed  # withholding understates the final tax bill
+
+
+def test_unknown_tax_mode_raises():
+    with pytest.raises(ValueError):
+        config.tax_params("lunar")
+
+
+@pytest.mark.parametrize("game", ["powerball", "mega_millions"])
+def test_break_even_after_withholding_is_positive_and_consistent(game):
+    era = rules.current_era(game)
+    rate, threshold = config.tax_params("withholding")
+    j = lm.break_even_jackpot(era, tax_rate=rate, threshold=threshold)
+    assert j > 0
+    ev = lm.ev_breakdown(era, j, tax_mode="withholding", tickets_sold=0)
+    assert ev["after_tax"]["total_per_dollar"] == pytest.approx(1.0)
 
 
 @pytest.mark.parametrize("game", ["powerball", "mega_millions"])

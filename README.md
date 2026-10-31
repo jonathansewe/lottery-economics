@@ -25,22 +25,23 @@ suggests or "predicts" numbers. The whole point is that you can't.
 | Per $1 spent | Powerball ($2) | Mega Millions ($5) | NY Numbers ($1 straight) |
 |---|---|---|---|
 | Starting jackpot ($20M / $50M), as advertised | $0.19 | $0.26 | — |
-| …at cash value, after federal + NYS + NYC tax | **$0.13** | **$0.20** | **$0.50** |
+| …at cash value, after tax owed on every prize (federal + NYS + NYC) | **$0.08** | **$0.11** | **$0.24** |
+| …same, but only the tax *withheld* on prizes over $5,000 (not your final bill) | $0.14 | $0.21 | $0.50 |
 | $1 billion jackpot, as advertised | $1.87 | $0.91 | — |
-| …cash, after tax, with jackpot splitting (200M other tickets, assumed) | **$0.38** | **$0.30** | — |
+| …cash, after tax owed, with jackpot splitting (200M other tickets, assumed) | **$0.33** | **$0.21** | — |
 | Break-even advertised jackpot, cash, before tax, no splitting | $1.17 billion | $2.62 billion | never |
-| …after tax | $2.52 billion | $5.63 billion | never |
+| …after tax owed | $2.66 billion | $6.25 billion | never |
 
 - **The "positive EV" billion-dollar jackpot is an illusion.** At $1B, Powerball's advertised
-  number suggests $1.87 back per $1. Three corrections bring it to about $0.38: the cash option
+  number suggests $1.87 back per $1. Three corrections bring it to about $0.33: the cash option
   (42% of the advertised amount), 51.8% top-bracket tax for an NYC resident, and a roughly 50%
   chance someone else also wins (when 200M other tickets are sold).
 - **Small prizes are a fixed rebate.** Powerball's non-jackpot tiers return $0.16 per $1 (about
-  $0.12 after tax). Mega Millions' built-in multiplier averages exactly ×3, so its fixed tiers
+  $0.08 after tax owed). Mega Millions' built-in multiplier averages exactly ×3, so its fixed tiers
   return $0.22 per $1. That's why Mega Millions beats Powerball at small jackpots despite the
   $5 price.
-- **NY Numbers is the "best" of the three at 50 cents on the dollar**, and it never changes,
-  because every prize is fixed. You still lose half of every dollar on average.
+- **NY Numbers is the "best" of the three at 50 cents on the dollar before tax** (24 cents after
+  tax owed), and it never changes, because every prize is fixed.
 - All 30 published "1 in X" odds (27 prize tiers across Powerball and the Mega Millions 2017 and 2025 eras,
   plus 3 NY Numbers plays) match the exact combinatorial values. The tests check this.
 
@@ -133,10 +134,14 @@ scripts/      notebook generator, link checker
 - **Cash value** is a fixed ratio of the advertised jackpot (Powerball 0.421, Mega Millions 0.430,
   from recent official jackpot/cash pairs). In reality it moves with interest rates. The
   calculator lets you change it.
-- **Taxes** are flat top marginal rates (federal 37%, NYS 10.9%, NYC 3.876%) on prizes over
-  $5,000, and $0 on smaller prizes. That's accurate for jackpots, slightly pessimistic for
-  mid-size prizes, and optimistic for small ones (which are legally taxable). Out-of-state
-  winners pay different state tax.
+- **Taxes.** All gambling winnings are taxable income, so the default view taxes **every prize**
+  at flat top marginal rates (federal 37%, NYS 10.9%, NYC 3.876%). That's accurate for jackpots
+  and pessimistic for small prizes won by people in lower brackets. A separate, clearly
+  labelled **withholding-only view** shows what is withheld when a prize is claimed: 24% federal
+  (IRS W-2G rules) plus NYS and NYC at their top rates (NYS Pub 140W), on prizes over $5,000
+  only. $5,000 is a withholding threshold, not an exemption, so that view understates what you
+  finally owe. (v1 wrongly treated prizes under $5,000 as tax-free; fixed in v2.)
+  Out-of-state winners pay different state tax.
 - **Ticket sales** per draw aren't published in one machine-readable place, so the split model
   takes ticket counts as an input. Scenarios are labelled as assumptions. The model assumes
   other players pick uniformly at random. Real players over-pick birthdays and patterns, so
@@ -202,8 +207,10 @@ The site walks EV down in four steps, each one more realistic than the last:
    annuity, not money that exists today.
 2. **Cash value.** The lump sum, about 42–43% of the advertised figure right now. It's the
    present value of the annuity, so it depends on interest rates.
-3. **After tax.** Prizes over $5,000 lose 37% + 10.9% + 3.876% = 51.776% for a top-bracket NYC
-   resident.
+3. **After tax.** Every prize is taxable income, so a top-bracket NYC resident loses
+   37% + 10.9% + 3.876% = 51.776% of each one. The calculator's *withholding only* view applies
+   only what the lottery withholds on claim (24% + 10.9% + 3.876%, on prizes over $5,000).
+   That is a cash-flow number, not your tax bill.
 4. **With splitting.** If other tickets also hit, the jackpot is divided (section 3).
 
 **Break-even jackpot** solves `fixed + P(jackpot) · J · cash_ratio · (1 − tax) = price` for J.

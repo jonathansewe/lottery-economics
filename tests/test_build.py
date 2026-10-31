@@ -1,7 +1,9 @@
 import json
 import math
 
-from lottery import build, states
+import pytest
+
+from lottery import build, config, states
 
 
 def test_build_writes_valid_json_without_data(tmp_path):
@@ -16,7 +18,7 @@ def test_build_writes_valid_json_without_data(tmp_path):
     assert all(s["real"] is None for s in sims)
     head = files["ev.json"]["headline"]
     assert 0 < head["powerball"] < 1 and 0 < head["mega_millions"] < 1
-    assert head["ny_numbers"] == 0.5
+    assert head["ny_numbers"] == pytest.approx(0.5 * (1 - config.combined_tax_rate()))  # after tax owed
 
 
 def test_ev_json_reference_matches_math():

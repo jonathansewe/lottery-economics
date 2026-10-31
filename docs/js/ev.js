@@ -17,17 +17,18 @@
     return -Math.expm1(-pJackpot * otherTickets);
   }
 
-  function taxed(amount, rate, taxFreeMax) {
-    return amount <= taxFreeMax ? amount : amount * (1 - rate);
+  // threshold 0 = tax owed on every prize; 5000 = the "withholding only" view
+  function taxed(amount, rate, threshold) {
+    return amount <= threshold ? amount : amount * (1 - rate);
   }
 
-  function fixedPrizeEV(game, taxRate, taxFreeMax) {
+  function fixedPrizeEV(game, taxRate, threshold) {
     var total = 0;
     game.tiers.forEach(function (t) {
       if (t.prize === "JACKPOT") return;
       var sum = 0;
       game.multiplier.forEach(function (fq) {
-        sum += fq[1] * taxed(t.prize * fq[0], taxRate, taxFreeMax);
+        sum += fq[1] * taxed(t.prize * fq[0], taxRate, threshold);
       });
       total += t.probability * sum;
     });
@@ -38,12 +39,12 @@
     return game.tiers.filter(function (t) { return t.prize === "JACKPOT"; })[0].probability;
   }
 
-  /* opts: {jackpot, cashRatio, tickets, taxRate, taxFreeMax} -> per-$1 steps */
+  /* opts: {jackpot, cashRatio, tickets, taxRate, threshold} -> per-$1 steps */
   function evBreakdown(game, opts) {
     var pj = jackpotProbability(game);
     var share = expectedShare(pj, opts.tickets);
-    var fixedPre = fixedPrizeEV(game, 0, opts.taxFreeMax);
-    var fixedPost = fixedPrizeEV(game, opts.taxRate, opts.taxFreeMax);
+    var fixedPre = fixedPrizeEV(game, 0, 0);
+    var fixedPost = fixedPrizeEV(game, opts.taxRate, opts.threshold);
     var cash = opts.jackpot * opts.cashRatio;
     var steps = {
       advertised: [fixedPre, pj * opts.jackpot],
@@ -62,9 +63,9 @@
     return out;
   }
 
-  function breakEvenJackpot(game, cashRatio, taxRate, taxFreeMax) {
+  function breakEvenJackpot(game, cashRatio, taxRate, threshold) {
     var pj = jackpotProbability(game);
-    var fixed = fixedPrizeEV(game, taxRate, taxFreeMax);
+    var fixed = fixedPrizeEV(game, taxRate, threshold);
     return (game.price - fixed) / (pj * cashRatio * (1 - taxRate));
   }
 

@@ -42,7 +42,7 @@
     var cards = [
       { g: "powerball", v: h.powerball, sub: "at the " + bigMoney(ev.games.powerball.starting_jackpot) + " starting jackpot, cash option, after taxes" },
       { g: "mega_millions", v: h.mega_millions, sub: "at the " + bigMoney(ev.games.mega_millions.starting_jackpot) + " starting jackpot, cash option, after taxes" },
-      { g: "ny_numbers", v: h.ny_numbers, sub: "straight play, fixed $500 prize on a 1-in-1,000 chance" }
+      { g: "ny_numbers", v: h.ny_numbers, sub: "straight play: fixed $500 prize on a 1-in-1,000 chance, after taxes" }
     ];
     document.getElementById("hero").innerHTML = cards.map(function (c) {
       return '<div class="hero-card"><p class="game">' + GAME[c.g] + '</p>' +
@@ -262,12 +262,14 @@
           }).join("") + "</tbody></table></div>";
       });
       html += "<h3>NY Numbers</h3><p class=\"muted\">Prizes are fixed, so the return never changes: </p><ul class=\"plain\">" +
-        E.numbers.map(function (n) { return "<li>" + esc(n.label) + ": <strong>" + money(n.ev_per_dollar) + "</strong> back per $1</li>"; }).join("") + "</ul>" +
+        E.numbers.map(function (n) { return "<li>" + esc(n.label) + ": <strong>" + money(n.ev_per_dollar) + "</strong> back per $1 before tax, " + money(n.after_tax_per_dollar) + " after tax owed</li>"; }).join("") + "</ul>" +
         "<h3>Tax assumptions</h3><div class=\"table-scroll\"><table><thead><tr><th>Tax</th><th class=\"num\">Rate</th><th>How it was checked</th></tr></thead><tbody>" +
         [["Federal (top bracket)", "federal", 1], ["New York State (top bracket)", "ny_state", 2], ["New York City (top bracket)", "nyc", 3]].map(function (t) {
           return "<tr><td>" + t[0] + '</td><td class="num">' + pct(E.tax[t[1]].rate, t[2]) + '</td><td class="fineprint" style="white-space:normal">' + esc(E.tax[t[1]].verified) + "</td></tr>";
         }).join("") + "</tbody></table></div>" +
-        '<p class="fineprint">Prizes of $' + E.tax_free_prize_max.toLocaleString("en-US") + " or less are treated as untaxed (a simplification: legally all winnings are taxable). Larger prizes are taxed at the top marginal rates, which slightly overstates tax on mid-size prizes.</p>";
+        '<p class="fineprint">All gambling winnings are taxable income, so every prize, even $4, is taxed here at the top marginal rates. That overstates tax for most people on small prizes. The calculator also has a <em>withholding only</em> view: ' +
+        pct(E.withholding.federal.rate, 0) + " federal + NYS + NYC withheld on prizes over $" + E.withholding_threshold.toLocaleString("en-US") +
+        ". That is what is taken when you claim, not what you finally owe.</p>";
       el.innerHTML = html;
       charts.forEach(function (c) {
         var s = c[1];
@@ -389,9 +391,18 @@
   function initCalc() {
     var E = D.ev;
     var q = function (id) { return document.getElementById(id); };
-    q("rate-federal").textContent = "(" + pct(E.tax.federal.rate) + ")";
-    q("rate-state").textContent = "(" + pct(E.tax.ny_state.rate, 2) + ")";
-    q("rate-city").textContent = "(" + pct(E.tax.nyc.rate, 3) + ")";
+    function mode() { return document.querySelector('input[name="tax-mode"]:checked').value; }
+    function rates() { return mode() === "withholding" ? E.withholding : E.tax; }
+    function showRates() {
+      var R = rates();
+      q("rate-federal").textContent = "(" + pct(R.federal.rate) + ")";
+      q("rate-state").textContent = "(" + pct(R.ny_state.rate, 2) + ")";
+      q("rate-city").textContent = "(" + pct(R.nyc.rate, 3) + ")";
+    }
+    showRates();
+    document.querySelectorAll('input[name="tax-mode"]').forEach(function (r) {
+      r.addEventListener("change", function () { showRates(); run(); });
+    });
     function setCash() { q("calc-cash").value = E.games[q("calc-game").value].cash_ratio; }
     setCash();
     q("calc-game").addEventListener("change", function () { setCash(); run(); });
@@ -408,9 +419,10 @@
       var jackpot = num("calc-jackpot", 0, 1e11), cash = num("calc-cash", 0.01, 1), tickets = num("calc-tickets", 0, 5e9);
       var out = q("calc-out");
       if (jackpot == null || cash == null || tickets == null) { out.innerHTML = '<p class="muted">Enter a number in each box.</p>'; return; }
-      var rate = (q("tax-federal").checked ? E.tax.federal.rate : 0) + (q("tax-state").checked ? E.tax.ny_state.rate : 0) + (q("tax-city").checked ? E.tax.nyc.rate : 0);
-      var r = LotteryEV.evBreakdown(G, { jackpot: jackpot, cashRatio: cash, tickets: tickets, taxRate: rate, taxFreeMax: E.tax_free_prize_max });
-      var be = LotteryEV.breakEvenJackpot(G, cash, rate, E.tax_free_prize_max);
+      var R = rates(), threshold = E.tax_modes[mode()].threshold;
+      var rate = (q("tax-federal").checked ? R.federal.rate : 0) + (q("tax-state").checked ? R.ny_state.rate : 0) + (q("tax-city").checked ? R.nyc.rate : 0);
+      var r = LotteryEV.evBreakdown(G, { jackpot: jackpot, cashRatio: cash, tickets: tickets, taxRate: rate, threshold: threshold });
+      var be = LotteryEV.breakEvenJackpot(G, cash, rate, threshold);
       var v = r.with_split.total_per_dollar;
       out.innerHTML = '<p class="calc-big">' + money(v) + ' <small class="muted" style="font-size:1rem;font-weight:500">expected back per $1</small></p>' +
         '<p class="muted">You lose ' + money(1 - v) + " per dollar on average" + (v >= 1 ? " (this scenario is above break-even, which in practice almost never holds once ticket sales are realistic)" : "") +

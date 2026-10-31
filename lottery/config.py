@@ -34,12 +34,21 @@ TAX = {
     },
 }
 
-# Prizes at or below this amount are treated as untaxed in the "after tax" EV.
-# Legally all gambling winnings are taxable income; this is a modelling choice
-# so that a $4 prize is not shown losing 52% to tax. $5,000 is the level above
-# which NY Lottery prizes are subject to withholding.
-# ASSUMPTION — not verified from an official page in this build.
-TAX_FREE_PRIZE_MAX = 5_000
+# All gambling winnings are taxable income, so the default "owed" view taxes
+# every prize. The separate "withholding" view shows only what is withheld when a
+# prize is claimed, which is NOT what you owe:
+#   federal: 24% on lottery winnings over $5,000
+#     https://www.irs.gov/instructions/iw2g  (Instructions for Forms W-2G, Jan 2026)
+#   NY State / NYC: withheld at the highest effective rate on proceeds over $5,000
+#     https://www.tax.ny.gov/pdf/publications/income/pub140w.pdf
+WITHHOLDING_THRESHOLD = 5_000
+WITHHOLDING = {
+    "federal": {"rate": 0.24, "verified": "search-snippet of irs.gov W-2G instructions"},
+    # "highest effective rate" per Pub 140W; the rate itself is TAX["ny_state"/"nyc"]
+    "ny_state": {"rate": 0.109, "verified": "search-snippet of tax.ny.gov Pub 140W (rate = NYS top rate)"},
+    "nyc": {"rate": 0.03876, "verified": "search-snippet of tax.ny.gov Pub 140W (rate = NYC top rate)"},
+}
+TAX_MODES = ("owed", "withholding", "none")
 
 
 def combined_tax_rate(federal=True, state=True, city=True):
@@ -54,6 +63,22 @@ def combined_tax_rate(federal=True, state=True, city=True):
     if city:
         rate += TAX["nyc"]["rate"]
     return rate
+
+
+def tax_params(mode: str = "owed") -> tuple[float, float]:
+    """(rate, threshold): prizes strictly above `threshold` are taxed at `rate`.
+
+    owed        every prize taxed at the combined top marginal rate (default)
+    withholding only prizes over $5,000, at the rates withheld on claim
+    none        no tax
+    """
+    if mode == "owed":
+        return combined_tax_rate(), 0.0
+    if mode == "withholding":
+        return sum(v["rate"] for v in WITHHOLDING.values()), float(WITHHOLDING_THRESHOLD)
+    if mode == "none":
+        return 0.0, 0.0
+    raise ValueError(f"unknown tax mode {mode!r}; expected one of {TAX_MODES}")
 
 
 # --- Cash value vs advertised (annuity) jackpot ------------------------------
