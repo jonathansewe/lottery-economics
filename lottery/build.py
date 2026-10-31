@@ -176,7 +176,7 @@ def write_findings(readme: Path, text: str) -> None:
 
 
 def build(out_dir: Path = OUT, data_dir: Path = stats.DATA_DIR, histories: int = 1000,
-          readme: Path | None = ROOT / "README.md") -> None:
+          readme: Path | None = ROOT / "README.md", sales_dir: Path | None = None) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     payloads = {
         "games.json": games_json(),
@@ -184,7 +184,7 @@ def build(out_dir: Path = OUT, data_dir: Path = stats.DATA_DIR, histories: int =
         "stats.json": stats_json(data_dir),
         "simulation.json": {"simulations": stats.simulation_report(data_dir, histories)},
         "states.json": {"jurisdictions": states.jurisdictions()},
-        "sales.json": sales.report(),
+        "sales.json": sales.report(sales_dir or sales.SALES_DIR),
     }
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     for name, payload in payloads.items():

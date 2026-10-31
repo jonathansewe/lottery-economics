@@ -153,7 +153,8 @@
   // ---------- NY deep dive ----------
   var TABS = [
     ["games", "Games & odds"], ["ev", "Expected value"], ["freq", "Draw frequencies"],
-    ["tests", "Fairness tests"], ["sim", "Hot & cold simulation"]
+    ["tests", "Fairness tests"], ["sim", "Hot & cold simulation"], ["history", "Draw history"],
+    ["checker", "Number checker"], ["sales", "Ticket sales"]
   ];
   function nyPanel() {
     return '<div class="panel"><div class="panel-head"><div><p class="eyebrow">Deep dive</p><h2>New York</h2></div>' +
@@ -201,7 +202,11 @@
   }
 
   var RENDER = {
-    games: function (el) {
+    games: function (el) { NYGames.gamesTab(el, D); },
+    history: function (el) { NYGames.historyTab(el, D); },
+    checker: function (el) { NYGames.checkerTab(el, D); },
+    sales: function (el) { NYGames.salesTab(el, D); },
+    gamesV1: function (el) {
       var html = "";
       ["powerball", "mega_millions"].forEach(function (g) {
         var G = D.games[g], cur = G.eras.filter(function (e) { return e.era_id === G.current_era; })[0];
@@ -242,7 +247,7 @@
 
     ev: function (el) {
       var E = D.ev;
-      var html = '<p class="muted">Each bar adds one more piece of reality to the previous one. The vertical line is $1.00, where you would break even on average.</p>';
+      var html = NYGames.evTable(D) + "<h3>Powerball and Mega Millions, step by step</h3>" + '<p class="muted">Each bar adds one more piece of reality to the previous one. The vertical line is $1.00, where you would break even on average.</p>';
       var charts = [];
       ["powerball", "mega_millions"].forEach(function (g) {
         var G = E.games[g];
@@ -288,13 +293,13 @@
       var games = [];
       F.forEach(function (f) { if (games.indexOf(f.game) < 0) games.push(f.game); });
       el.innerHTML = '<p class="muted">How often each ball came up, counted separately for each rule era. The shaded band is where a single ball\'s count lands 95% of the time if the draws are fair, so about 5% of the bars should stick out by chance alone. The line is the expected count.</p>' +
-        '<div class="chart-controls"><label>Game<select id="fq-game">' + games.map(function (g) { return '<option value="' + g + '">' + GAME[g] + "</option>"; }).join("") + "</select></label>" +
+        '<div class="chart-controls"><label>Game<select id="fq-game">' + games.map(function (g) { return '<option value="' + g + '">' + esc(D.games[g].label) + "</option>"; }).join("") + "</select></label>" +
         '<label>Era<select id="fq-era"></select></label><label>Balls<select id="fq-set"></select></label></div>' +
         '<p class="fineprint" id="fq-note"></p><div class="chart" id="fq-chart"></div>' +
         '<details class="as-table"><summary>Show as table</summary><div class="table-scroll" id="fq-table"></div></details>';
       var gS = el.querySelector("#fq-game"), eS = el.querySelector("#fq-era"), sS = el.querySelector("#fq-set");
       function opts(sel, items) { sel.innerHTML = items.map(function (i) { return '<option value="' + i[0] + '">' + esc(i[1]) + "</option>"; }).join(""); }
-      var SETNAME = { white: "White balls", special: "Powerball / Mega Ball", digit_1: "1st digit", digit_2: "2nd digit", digit_3: "3rd digit", number: "Whole number (000–999)" };
+      var SETNAME = { white: "White balls / numbers drawn", special: "Special ball", bonus: "Bonus ball", digit_1: "1st digit", digit_2: "2nd digit", digit_3: "3rd digit", digit_4: "4th digit", number: "Whole number" };
       function refreshEras() {
         var seen = {}, items = [];
         F.filter(function (f) { return f.game === gS.value; }).forEach(function (f) {
@@ -305,7 +310,7 @@
       }
       function refreshSets() {
         opts(sS, F.filter(function (f) { return f.era_id === eS.value; }).map(function (f) {
-          return [f.ball_set, f.ball_set === "special" ? SPECIAL[f.game] : SETNAME[f.ball_set]];
+          return [f.ball_set, f.ball_set === "special" && SPECIAL[f.game] ? SPECIAL[f.game] : SETNAME[f.ball_set]];
         }));
         draw();
       }
@@ -316,7 +321,7 @@
           f.outside_band + " of " + f.counts.length + " outside the fair 95% band (expect about " + f.expected_outside + " by chance).";
         Charts.columns(el.querySelector("#fq-chart"), {
           labels: f.labels, counts: f.counts, expected: f.expected, band: f.band95,
-          unit: f.game === "ny_numbers" ? (f.ball_set === "number" ? "Number" : "Digit") : "Ball"
+          unit: D.games[f.game].kind === "digits" ? (f.ball_set === "number" ? "Number" : "Digit") : "Ball"
         }, { ariaLabel: "Frequency of each " + (f.game === "ny_numbers" ? "digit or number" : "ball") + ", " + f.era_label });
         el.querySelector("#fq-table").innerHTML = "<table><thead><tr><th>Value</th><th class=\"num\">Times drawn</th><th class=\"num\">Expected</th></tr></thead><tbody>" +
           f.labels.map(function (l, i) { return "<tr><td>" + l + '</td><td class="num">' + f.counts[i] + '</td><td class="num">' + f.expected.toFixed(1) + "</td></tr>"; }).join("") + "</tbody></table>";
@@ -337,7 +342,7 @@
         '<p><strong>' + (flagged === 0 ? "No test shows evidence of non-random draws." : flagged + " of " + n + " tests fall below the corrected threshold. See the notes below.") + "</strong></p>" +
         '<div class="table-scroll"><table><thead><tr><th>Game</th><th>Era</th><th>Balls</th><th class="num">Draws</th><th class="num">χ²</th><th class="num">df</th><th class="num">p-value</th><th class="num">Bonferroni p</th><th>Result</th></tr></thead><tbody>' +
         T.map(function (t) {
-          return "<tr><td>" + GAME[t.game] + "</td><td>" + esc(t.era_label) + "</td><td>" + esc(t.ball_set.replace("_", " ")) + '</td><td class="num">' + t.n_draws +
+          return "<tr><td>" + esc(D.games[t.game].label) + "</td><td>" + esc(t.era_label) + "</td><td>" + esc(t.ball_set.replace("_", " ")) + '</td><td class="num">' + t.n_draws +
             '</td><td class="num">' + t.statistic.toFixed(1) + '</td><td class="num">' + t.df + '</td><td class="num">' + t.p_value.toPrecision(3) +
             '</td><td class="num">' + t.p_bonferroni.toPrecision(3) + '</td><td><span class="verdict' + (t.significant ? " flag" : "") + '">' +
             (t.significant ? "Uneven beyond chance" : "Consistent with fair") + (t.min_expected_ok ? "" : " (small sample)") + "</span></td></tr>";
@@ -445,9 +450,9 @@
       var b = e.target.closest("[data-open]");
       if (b) { e.preventDefault(); select(b.getAttribute("data-open")); }
     });
-    Promise.all(["games", "ev", "stats", "simulation", "states"].map(function (n) { return getJSON("data/" + n + ".json"); }))
+    Promise.all(["games", "ev", "stats", "simulation", "states", "sales", "draws/index"].map(function (n) { return getJSON("data/" + n + ".json"); }))
       .then(function (r) {
-        D = { games: r[0], ev: r[1], stats: r[2], sim: r[3], states: r[4] };
+        D = { games: r[0], ev: r[1], stats: r[2], sim: r[3], states: r[4], sales: r[5], draws: r[6] };
         D.states.jurisdictions.forEach(function (j) { byAbbr[j.abbr] = j; byFips[j.fips] = j; });
         renderHero();
         renderStateList();

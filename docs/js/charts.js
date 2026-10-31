@@ -159,5 +159,39 @@
     });
   }
 
-  root.Charts = { hbar: hbar, columns: columns, histogram: histogram, hideTip: hideTip, redrawWithin: redrawWithin };
+  /* Lines over time: series [{name, points:[{x: Date, y}]}], at most 3 (fixed colour order). */
+  function lines(el, series, opts) {
+    opts = opts || {};
+    var colors = ["var(--accent)", "var(--series-2)", "var(--series-3)"];
+    responsive(el, function () {
+      var m = { top: 12, right: 12, bottom: 30, left: 52 };
+      el.innerHTML = "";
+      var legend = d3.select(el).append("div").attr("class", "legend");
+      series.forEach(function (s, i) {
+        legend.append("span").html('<i class="swatch" style="background:' + colors[i] + '"></i>' + s.name.replace(/</g, "&lt;"));
+      });
+      var w = Math.max(280, el.clientWidth || 600);
+      var svg = d3.select(el).append("svg").attr("width", w).attr("height", 240).attr("role", "img").attr("aria-label", opts.ariaLabel || "");
+      var iw = w - m.left - m.right, ih = 240 - m.top - m.bottom;
+      var g = svg.append("g").attr("transform", "translate(" + m.left + "," + m.top + ")");
+      var all = [].concat.apply([], series.map(function (s) { return s.points; }));
+      var x = d3.scaleTime().domain(d3.extent(all, function (p) { return p.x; })).range([0, iw]);
+      var y = d3.scaleLinear().domain([0, d3.max(all, function (p) { return p.y; }) * 1.1]).nice().range([ih, 0]);
+      g.append("g").attr("class", "grid").call(d3.axisLeft(y).ticks(4).tickSize(-iw).tickFormat("")).call(function (a) { a.select(".domain").remove(); });
+      g.append("g").attr("class", "axis").attr("transform", "translate(0," + ih + ")").call(d3.axisBottom(x).ticks(Math.max(2, Math.floor(iw / 90))));
+      g.append("g").attr("class", "axis").call(d3.axisLeft(y).ticks(4).tickFormat(opts.yFormat || null));
+      series.forEach(function (s, i) {
+        var pts = s.points.slice().sort(function (a, b) { return a.x - b.x; });
+        g.append("path").datum(pts).attr("fill", "none").attr("stroke", colors[i]).attr("stroke-width", 2)
+          .attr("d", d3.line().x(function (p) { return x(p.x); }).y(function (p) { return y(p.y); }));
+        g.selectAll(".pt" + i).data(pts).enter().append("circle").attr("r", 4).attr("fill", colors[i])
+          .attr("stroke", "var(--surface)").attr("stroke-width", 2)
+          .attr("cx", function (p) { return x(p.x); }).attr("cy", function (p) { return y(p.y); })
+          .on("mousemove", function (e, p) { showTip(e, "<strong>" + s.name.replace(/</g, "&lt;") + "</strong><br>" + p.x.toISOString().slice(0, 10) + ": " + Math.round(p.y).toLocaleString("en-US") + " tickets"); })
+          .on("mouseleave", hideTip);
+      });
+    });
+  }
+
+  root.Charts = { hbar: hbar, columns: columns, histogram: histogram, lines: lines, hideTip: hideTip, redrawWithin: redrawWithin };
 })(this);
