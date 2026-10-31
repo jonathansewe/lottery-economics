@@ -20,12 +20,16 @@ def _matches_published(one_in: float, published: float) -> bool:
 @pytest.mark.parametrize("era", PRIZED_ERAS, ids=lambda e: e.era_id)
 def test_every_tier_matches_official_odds(era):
     for row in lm.odds_table(era):
+        if row["official_one_in"] is None:
+            continue  # no published figure found; the exact value stands on its own
         assert _matches_published(row["one_in"], row["official_one_in"]), (
             era.era_id, row["white"], row["special"], row["one_in"], row["official_one_in"])
 
 
 @pytest.mark.parametrize("era", PRIZED_ERAS, ids=lambda e: e.era_id)
 def test_overall_odds_match_official(era):
+    if era.official_overall_odds is None:
+        pytest.skip("no published overall odds")
     one_in = float(1 / lm.overall_probability(era))
     assert _matches_published(one_in, era.official_overall_odds), one_in
 

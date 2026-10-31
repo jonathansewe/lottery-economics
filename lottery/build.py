@@ -28,36 +28,50 @@ BIG_JACKPOT_TICKETS = 200_000_000
 
 def _era_meta(era: rules.Era) -> dict:
     return {
-        "era_id": era.era_id, "label": era.label, "matrix": era.matrix,
+        "era_id": era.era_id, "label": era.label, "matrix": era.matrix, "kind": era.kind,
         "first_draw": str(era.first_draw), "last_draw": str(era.last_draw) if era.last_draw else None,
         "white_pool": era.white_pool, "white_drawn": era.white_drawn, "special_pool": era.special_pool,
-        "price": era.price, "has_prize_table": bool(era.tiers),
+        "bonus": era.bonus, "price": era.price, "plays_per_dollar": era.plays_per_dollar,
+        "prize_pool_fraction": era.prize_pool_fraction,
+        "has_prize_table": bool(era.tiers or era.plays or era.spot_tables),
         "starting_jackpot": era.starting_jackpot,
-        "verified": era.verified, "sources": list(era.sources), "notes": era.notes,
+        "verified": era.verified, "unverified": list(era.unverified),
+        "sources": list(era.sources), "notes": era.notes,
     }
+
+
+def _jsonable(rows):
+    return [{k: (float(v) if k == "probability" else v) for k, v in r.items()} for r in rows]
+
+
+def _odds_payload(era: rules.Era) -> dict:
+    out = {key: _jsonable(rows) for key, rows in lm.odds_rows(era).items()}
+    if era.kind == "lotto":
+        out["overall_one_in"] = float(1 / lm.overall_probability(era))
+        out["official_overall_one_in"] = era.official_overall_odds
+        out["multiplier"] = [[f, q] for f, q in era.multiplier.items()]
+        for r in out["tiers"]:
+            if r["prize"] == rules.PARIMUTUEL:
+                t = next(t for t in era.tiers if (t.white, t.special) == (r["white"], r["special"]))
+                r["typical_prize"] = lm.typical_parimutuel_prize(era, t)
+    if era.kind == "keno":
+        out["official_overall"] = {f"{k}-spot": v for k, v in era.spot_overall.items()}
+        out["overall"] = {key: 1 / sum(r["probability"] for r in rows)
+                          for key, rows in out.items() if key.endswith("-spot")}
+    return out
 
 
 def games_json() -> dict:
     out = {}
     for game, eras in rules.GAMES.items():
         cur = rules.current_era(game)
-        entry = {"label": rules.GAME_LABELS[game], "eras": [_era_meta(e) for e in eras],
-                 "current_era": cur.era_id}
-        if game == "ny_numbers":
-            entry["plays"] = [{k: (float(v) if k == "probability" else v) for k, v in r.items()}
-                              for r in lm.numbers_odds()]
-        else:
-            entry["odds"] = {}
-            for e in eras:
-                if not e.tiers:
-                    continue
-                entry["odds"][e.era_id] = {
-                    "tiers": [{**{k: v for k, v in r.items() if k != "probability"},
-                               "probability": float(r["probability"])} for r in lm.odds_table(e)],
-                    "overall_one_in": float(1 / lm.overall_probability(e)),
-                    "official_overall_one_in": e.official_overall_odds,
-                    "multiplier": [[f, q] for f, q in e.multiplier.items()],
-                }
+        entry = {"label": rules.GAME_LABELS[game], "kind": cur.kind, "retired": game in rules.RETIRED,
+                 "eras": [_era_meta(e) for e in eras], "current_era": cur.era_id,
+                 "odds": {e.era_id: _odds_payload(e) for e in eras if e.tiers or e.plays or e.spot_tables}}
+        if game not in ("powerball", "mega_millions"):
+            entry["ev"] = {mode: lm.game_ev(cur, mode) for mode in config.TAX_MODES}
+        if game == "ny_numbers":  # kept for the v1 page code
+            entry["plays"] = _jsonable(lm.numbers_odds())
         out[game] = entry
     return out
 

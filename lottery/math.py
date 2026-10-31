@@ -22,15 +22,27 @@ from fractions import Fraction
 from math import comb
 
 from . import config
-from .rules import JACKPOT, NUMBERS_PLAYS, Era
+from .rules import FREE_PLAY, JACKPOT, NUMBERS_PLAYS, PARIMUTUEL, Era
 
 
 # ---------------------------------------------------------------------------
 # Odds
 # ---------------------------------------------------------------------------
-def tier_probability(era: Era, white: int, special: int) -> Fraction:
+def tier_probability(era: Era, white: int, special: int | None) -> Fraction:
+    """P(exactly `white` matches, and the special/bonus condition).
+
+    special=None means the special ball doesn't matter for this tier.
+    Bonus ball (NY Lotto): drawn from the m-k balls left after the k winners. If you
+    matched j, your k-j other numbers are among those m-k, so
+    P(bonus is one of yours | j) = (k-j)/(m-k).
+    """
     m, k, s = era.white_pool, era.white_drawn, era.special_pool
     p_white = Fraction(comb(k, white) * comb(m - k, k - white), comb(m, k))
+    if special is None:
+        return p_white
+    if era.bonus:
+        p_bonus = Fraction(k - white, m - k)
+        return p_white * (p_bonus if special else 1 - p_bonus)
     p_special = Fraction(1, s) if special else Fraction(s - 1, s)
     return p_white * p_special
 
@@ -53,6 +65,18 @@ def odds_table(era: Era) -> list[dict]:
 
 def overall_probability(era: Era) -> Fraction:
     return sum((tier_probability(era, t.white, t.special) for t in era.tiers), Fraction(0))
+
+
+def keno_probability(era: Era, spots: int, matches: int) -> Fraction:
+    """Keno (Quick Draw, Pick 10): you pick `spots` numbers, the lottery draws d of m.
+    P(exactly `matches` of yours drawn) = C(d, matches) C(m-d, spots-matches) / C(m, spots)."""
+    m, d = era.white_pool, era.white_drawn
+    return Fraction(comb(d, matches) * comb(m - d, spots - matches), comb(m, spots))
+
+
+def digits_probability(era: Era, ways: int) -> Fraction:
+    """Digit games: 10^n equally likely results; a play covering `ways` of them."""
+    return Fraction(ways, 10 ** era.white_drawn)
 
 
 def numbers_odds() -> list[dict]:
@@ -185,6 +209,85 @@ def break_even_jackpot(era: Era, cash_ratio: float | None = None,
     pj = jackpot_probability(era)
     fixed = fixed_prize_ev(era, tax_rate, threshold)
     return (era.price - fixed) / (pj * cash_ratio * (1 - tax_rate))
+
+
+def _row(t, p: Fraction) -> dict:
+    return {"white": t.white, "special": t.special, "prize": t.prize, "label": t.label,
+            "verified": t.verified, "pool_share": t.pool_share,
+            "probability": p, "one_in": float(1 / p), "official_one_in": t.official_odds}
+
+
+def odds_rows(era: Era) -> dict:
+    """Every tier's exact odds for any game kind, keyed by play (one key for most games)."""
+    if era.kind == "keno":
+        return {f"{spots}-spot": [_row(t, keno_probability(era, spots, t.white)) for t in tiers]
+                for spots, tiers in sorted(era.spot_tables.items(), reverse=True)}
+    if era.kind == "digits":
+        return {"plays": [{**p, "probability": digits_probability(era, p["ways"]),
+                           "one_in": 10 ** era.white_drawn / p["ways"],
+                           "verified": p.get("verified", True)} for p in era.plays]}
+    return {"tiers": [_row(t, tier_probability(era, t.white, t.special)) for t in era.tiers]}
+
+
+def typical_parimutuel_prize(era: Era, tier) -> float | None:
+    """Expected prize per winning play for a pari-mutuel tier, ignoring rollovers.
+
+    Per play, the tier's pool is price * pool_fraction * share and the expected number
+    of winners is p, so the prize per winner is price * fraction * share / p.
+    Ticket sales cancel out, which is why this works without knowing sales."""
+    if tier.pool_share is None or era.prize_pool_fraction is None:
+        return None
+    p = float(tier_probability(era, tier.white, tier.special))
+    return era.price * era.prize_pool_fraction * tier.pool_share / p
+
+
+def _fixed_tiers_ev(era: Era, rows, rate: float, threshold: float) -> tuple[float, float]:
+    pre = sum(float(r["probability"]) * r["prize"] for r in rows)
+    post = sum(float(r["probability"]) * _taxed(r["prize"], rate, threshold) for r in rows)
+    return pre / era.price, post / era.price
+
+
+def game_ev(era: Era, tax_mode: str = "owed") -> list[dict]:
+    """EV per $1 for games without a rolling jackpot input (everything except
+    Powerball / Mega Millions, which use ev_breakdown). One row per play type.
+
+    pari-mutuel games: long-run EV = the share of sales paid as prizes (rollovers only
+    move money between draws). After tax, tiers whose typical prize exceeds the
+    threshold are taxed; with tax owed the threshold is 0 so everything is.
+    """
+    rate, threshold = config.tax_params(tax_mode)
+    out = []
+    if era.kind == "keno":
+        for play, rows in odds_rows(era).items():
+            pre, post = _fixed_tiers_ev(era, rows, rate, threshold)
+            out.append({"play": play, "pre_tax": pre, "after_tax": post,
+                        "verified": all(r["verified"] for r in rows)})
+    elif era.kind == "digits":
+        for r in odds_rows(era)["plays"]:
+            pre = float(r["probability"]) * r["prize"] / era.price
+            out.append({"play": r["play"], "label": r["label"], "pre_tax": pre,
+                        "after_tax": float(r["probability"]) * _taxed(r["prize"], rate, threshold) / era.price,
+                        "verified": r["verified"]})
+    elif era.prize_pool_fraction is not None:
+        pre = era.prize_pool_fraction
+        taxed_share = 0.0
+        for t in era.tiers:
+            typical = era.price if t.prize == FREE_PLAY else typical_parimutuel_prize(era, t)
+            # unknown pool share: treated as under the threshold (NY's published estimates are)
+            if typical is not None and typical > threshold and t.pool_share is not None:
+                taxed_share += t.pool_share
+            elif threshold == 0:
+                taxed_share = None  # owed: everything is taxed
+                break
+        post = pre * (1 - rate) if taxed_share is None else pre * (1 - rate * taxed_share)
+        out.append({"play": "pari-mutuel", "pre_tax": pre, "after_tax": post,
+                    "verified": True, "note": "long-run share of sales paid as prizes"})
+    else:
+        rows = odds_rows(era)["tiers"]
+        pre, post = _fixed_tiers_ev(era, rows, rate, threshold)
+        out.append({"play": "base", "pre_tax": pre, "after_tax": post,
+                    "verified": all(r["verified"] for r in rows)})
+    return out
 
 
 def numbers_ev(tax_mode: str = "owed") -> list[dict]:
