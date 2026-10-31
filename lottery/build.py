@@ -15,7 +15,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import config, ingest, rules, states, stats
+from . import config, export, ingest, rules, states, stats
 from . import math as lm
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -190,6 +190,8 @@ def build(out_dir: Path = OUT, data_dir: Path = stats.DATA_DIR, histories: int =
         payload["generated_at"] = stamp
         (out_dir / name).write_text(json.dumps(payload, separators=(",", ":"), allow_nan=False))
         print(f"wrote {out_dir / name}")
+    draws_index = export.export_draws(data_dir, out_dir / "draws")
+    print(f"wrote {out_dir / 'draws'} ({sum(len(g['files']) for g in draws_index.values())} draw files)")
     if readme is not None:
         write_findings(readme, findings_markdown(payloads["stats.json"], payloads["simulation.json"]["simulations"]))
 

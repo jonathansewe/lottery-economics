@@ -475,6 +475,22 @@ GAME_LABELS = {"powerball": "Powerball", "mega_millions": "Mega Millions", "ny_n
                "millionaire_for_life": "Millionaire for Life"}
 RETIRED = {"cash4life"}
 
+# When each game began *in New York*, to compare with where the NY Open Data history
+# starts. (date, verified, note). None = not known. Only Millionaire for Life's launch
+# was confirmed from an official page; the rest are general knowledge.
+GAME_LAUNCH = {
+    "powerball": (date(2010, 1, 31), False, "NY joined Powerball in 2010 (Powerball itself began in 1992)"),
+    "mega_millions": (date(2002, 5, 15), False, "NY was a founding Mega Millions state (the Big Game, 1996)"),
+    "ny_numbers": (date(1980, 9, 2), False, "Numbers ('Daily Numbers') began 1980"),
+    "win4": (None, False, "Win 4's launch date was not verified"),
+    "ny_lotto": (date(1978, 1, 1), False, "NY Lotto has run since the late 1970s in earlier formats"),
+    "take5": (date(1992, 1, 17), False, "Take 5 began 1992"),
+    "pick10": (date(1987, 1, 12), False, "Pick 10 began 1987"),
+    "quick_draw": (date(1995, 9, 1), False, "Quick Draw began 1995"),
+    "cash4life": (date(2014, 6, 16), False, "Cash4Life began 2014 (NY joined later)"),
+    "millionaire_for_life": (date(2026, 2, 22), True, "first drawing 2026-02-22 (gaming.ny.gov)"),
+}
+
 
 def era_for(game: str, d: date) -> Era | None:
     """Return the era a draw on date `d` belongs to, or None if no era covers it."""
