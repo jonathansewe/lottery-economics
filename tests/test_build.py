@@ -11,7 +11,7 @@ def test_build_writes_valid_json_without_data(tmp_path):
     data.mkdir()
     build.build(out_dir=out, data_dir=data, histories=50, readme=None)
     files = {p.name: json.loads(p.read_text()) for p in out.glob("*.json")}
-    assert set(files) == {"games.json", "ev.json", "stats.json", "simulation.json", "states.json"}
+    assert set(files) == {"games.json", "ev.json", "stats.json", "simulation.json", "states.json", "sales.json"}
     assert files["stats.json"]["data_available"] is False
     sims = files["simulation.json"]["simulations"]
     assert {s["game"] for s in sims} == {"powerball", "mega_millions"}

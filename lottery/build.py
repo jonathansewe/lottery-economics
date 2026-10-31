@@ -15,7 +15,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import config, export, ingest, rules, states, stats
+from . import config, export, ingest, rules, sales, states, stats
 from . import math as lm
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -184,6 +184,7 @@ def build(out_dir: Path = OUT, data_dir: Path = stats.DATA_DIR, histories: int =
         "stats.json": stats_json(data_dir),
         "simulation.json": {"simulations": stats.simulation_report(data_dir, histories)},
         "states.json": {"jurisdictions": states.jurisdictions()},
+        "sales.json": sales.report(),
     }
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     for name, payload in payloads.items():
